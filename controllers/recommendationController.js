@@ -147,3 +147,30 @@ exports.deleteRecommendation = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete recommendation', details: error.message });
   }
 };
+
+
+
+// routes/recommendationRoutes.js
+
+// controllers/recommendationController.js
+exports.listRecommendations = async (req, res) => {
+  const { mine, limit = 20, offset = 0, order = 'id', dir = 'DESC' } = req.query;
+  const where = {};
+  if (mine && req.user.role === 'student') {
+    const Student = require('../models/student');
+    const me = await Student.findOne({ where: { userId: req.user.id } });
+    if (!me) return res.status(404).json({ error: 'Student profile not found' });
+    where.studentId = me.id;
+  }
+  const Recommendation = require('../models/recommendation');
+  const Activity = require('../models/activity');
+
+  const rows = await Recommendation.findAll({
+    where,
+    include: [{ model: Activity, attributes: ['id','title'] }],
+    order: [[order, String(dir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC']],
+    limit: Math.min(+limit || 20, 100),
+    offset: Math.max(+offset || 0, 0),
+  });
+  res.json({ data: rows });
+};

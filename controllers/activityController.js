@@ -118,3 +118,36 @@ exports.createActivity = async (req, res) => {
     res.status(400).json({ error: 'Invalid data', details: err.message });
   }
 };
+
+exports.deleteActivity = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const activity = await Activity.findByPk(id);
+    if (!activity) return res.status(404).json({ error: 'Activity not found' });
+
+    try {
+      await activity.destroy(); // will throw if FK constraint blocks it
+      return res.json({ message: 'Activity deleted', id });
+    } catch (err) {
+      // Most dialects surface a FK issue as this:
+      const isFK =
+        err?.name === 'SequelizeForeignKeyConstraintError' ||
+        err?.parent?.code === '23503' ||                    // Postgres
+        err?.original?.code === 'ER_ROW_IS_REFERENCED_2';   // MySQL
+
+      if (isFK) {
+        return res.status(409).json({
+          error: 'Cannot delete: activity is referenced by recommendations',
+          hint: 'Delete or detach related recommendations first.'
+        });
+      }
+      console.error('[activities.delete destroy]', err);
+      return res.status(500).json({ error: 'Failed to delete activity', details: err.message });
+    }
+  } catch (err) {
+    console.error('[activities.delete]', err);
+    res.status(500).json({ error: 'Failed to delete activity', details: err.message });
+  }
+};

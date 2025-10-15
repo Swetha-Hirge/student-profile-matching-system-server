@@ -9,5 +9,6 @@ router.get('/:id', verifyToken, recommendationController.getRecommendationById);
 router.post('/', verifyToken, authorizeRole('teacher'), recommendationController.createRecommendation);
 router.put('/:id', verifyToken, authorizeRole('teacher'), recommendationController.updateRecommendation);
 router.delete('/:id', verifyToken, authorizeRole('teacher'), recommendationController.deleteRecommendation);
+router.get('/', verifyToken, recommendationController.listRecommendations);
 
 module.exports = router;

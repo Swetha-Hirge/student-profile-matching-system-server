@@ -7,7 +7,7 @@ const studentRoutes = require('./routes/studentRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
 const activityRoutes = require('./routes/activityRoutes');
 const recommendationRoutes = require('./routes/recomandationRoutes'); // <-- fixed spelling
-const feedbackRoutes = require('./routes/feedbackRouters');            // <-- fixed name
+const feedbackRoutes = require('./routes/feedbackRoutes')           // <-- fixed name
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
@@ -37,7 +37,7 @@ app.use('/api/students', studentRoutes);
 app.use('/api/teachers', teacherRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/recommendations', recommendationRoutes);
-app.use('/api/feedback', feedbackRoutes);
+app.use('/api', feedbackRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 

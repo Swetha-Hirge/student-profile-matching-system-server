@@ -97,8 +97,23 @@ exports.updateTeacher = async (req, res) => {
 // Delete teacher + user (transactional)
 exports.deleteTeacher = async (req, res) => {
   try {
-    const teacher = await Teacher.findByPk(req.params.id);
+    const idParam = req.params.id;
+    if (!idParam || idParam === 'undefined') {
+      return res.status(400).json({ error: 'Teacher id is required' });
+    }
+    const idNum = Number(idParam);
+    if (!Number.isInteger(idNum)) return res.status(400).json({ error: 'Invalid teacher id' });
+
+    const teacher = await Teacher.findByPk(idNum);
     if (!teacher) return res.status(404).json({ error: 'Teacher not found' });
+
+    // Option A: prevent delete if they still have students
+    const studentCount = await Student.count({ where: { teacherId: teacher.id } });
+    if (studentCount > 0) {
+      return res.status(409).json({ error: 'Cannot delete teacher with active students. Reassign or delete students first.' });
+    }
+
+    // Option B (if you prefer cascade, replace the block above with a TX that reassigns/deletes students)
 
     await sequelize.transaction(async (t) => {
       const user = await User.findByPk(teacher.userId, { transaction: t });
@@ -111,7 +126,6 @@ exports.deleteTeacher = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete teacher', details: err.message });
   }
 };
-
 // Logged-in teacher creates a student
 exports.createStudentUnderLoggedInTeacher = async (req, res) => {
   try {

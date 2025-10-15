@@ -4,13 +4,29 @@ const router = express.Router();
 const studentController = require('../controllers/studentController');
 const { verifyToken, authorizeRole } = require('../middleware/auth');
 
-let cacheMiddleware = (_pfx, _ttl) => (req, res, next) => next(); // no-op fallback
-try {
-  // use the correct path if your file is named cacheMiddleware.js
-  ({ cacheMiddleware } = require('../middleware/cache'));
-} catch (_) { /* keep no-op */ }
+let cacheMiddleware = (_pfx, _ttl) => (req, res, next) => next();
+try { ({ cacheMiddleware } = require('../middleware/cache')); } catch (_) {}
 
-// List & get
+/* ---------- /me (must be BEFORE :id) ---------- */
+
+// Logged-in student's profile (Student row)
+router.get(
+  '/me',
+  verifyToken,
+  authorizeRole('student'),
+  studentController.getMe
+);
+
+// Logged-in student's saved recommendations (optional)
+router.get(
+  '/me/recommendations',
+  verifyToken,
+  authorizeRole('student'),
+  studentController.getMySavedRecommendationsMinimal
+);
+
+/* ---------- List / read ---------- */
+
 router.get(
   '/',
   verifyToken,
@@ -27,12 +43,41 @@ router.get(
   studentController.getStudentById
 );
 
-// Update / delete (teacher can only touch their own students; admin can touch all)
-router.put('/:id', verifyToken, authorizeRole(['teacher', 'admin']), studentController.updateStudent);
-router.delete('/:id', verifyToken, authorizeRole(['teacher', 'admin']), studentController.deleteStudent);
+/* ---------- Recommendations ---------- */
 
-// Recommendations
-router.get('/:id/recommendations', verifyToken, authorizeRole(['teacher', 'student', 'admin']), studentController.getRecommendationsForStudent);
-router.post('/:id/recommendations', verifyToken, authorizeRole(['teacher', 'admin']), studentController.generateAndSaveTopRecommendation);
+// Anyone may *read* with restrictions inside controller:
+// - student: only their own id
+// - teacher: only their students
+// - admin: any
+router.get(
+  '/:id/recommendations',
+  verifyToken,
+  authorizeRole(['teacher', 'student', 'admin']),
+  studentController.getRecommendationsForStudent
+);
+
+// Only teacher/admin can create/save a top recommendation
+router.post(
+  '/:id/recommendations',
+  verifyToken,
+  authorizeRole(['teacher', 'admin']),
+  studentController.generateAndSaveTopRecommendation
+);
+
+/* ---------- Update / delete ---------- */
+
+router.put(
+  '/:id',
+  verifyToken,
+  authorizeRole(['teacher', 'admin']),
+  studentController.updateStudent
+);
+
+router.delete(
+  '/:id',
+  verifyToken,
+  authorizeRole(['teacher', 'admin']),
+  studentController.deleteStudent
+);
 
 module.exports = router;

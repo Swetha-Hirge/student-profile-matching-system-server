@@ -8,8 +8,9 @@ const Recommendation = require('../models/recommendation');
 const Activity = require('../models/activity');
 const matchingEngine = require('../services/matchingEngine');
 
-// GET /api/students  (admin = all; teacher = own only)
-// Supports ?limit=&offset=&q= (search by username/email)
+// ==============================
+// GET /api/students
+// ==============================
 exports.getAllStudents = async (req, res) => {
   try {
     const isAdmin = req.user.role === 'admin';
@@ -24,7 +25,6 @@ exports.getAllStudents = async (req, res) => {
 
     const where = {};
     if (!isAdmin) {
-      // scope to logged-in teacher's teacherId
       const teacher = await Teacher.findOne({ where: { userId: req.user.id } });
       if (!teacher) return res.status(404).json({ error: 'Teacher profile not found' });
       where.teacherId = teacher.id;
@@ -58,7 +58,9 @@ exports.getAllStudents = async (req, res) => {
   }
 };
 
-// GET /api/students/:id   (teacher must own; admin can view)
+// ==============================
+// GET /api/students/:id
+// ==============================
 exports.getStudentById = async (req, res) => {
   try {
     const student = await Student.findByPk(req.params.id, {
@@ -84,7 +86,9 @@ exports.getStudentById = async (req, res) => {
   }
 };
 
-// PUT /api/students/:id   (teacher can update own; admin any)
+// ==============================
+// PUT /api/students/:id
+// ==============================
 exports.updateStudent = async (req, res) => {
   try {
     const student = await Student.findByPk(req.params.id);
@@ -110,7 +114,9 @@ exports.updateStudent = async (req, res) => {
   }
 };
 
-// DELETE /api/students/:id (teacher own; admin any) — deletes Student + linked User in a TX
+// ==============================
+// DELETE /api/students/:id
+// ==============================
 exports.deleteStudent = async (req, res) => {
   try {
     const student = await Student.findByPk(req.params.id);
@@ -137,13 +143,29 @@ exports.deleteStudent = async (req, res) => {
   }
 };
 
+// ==============================
 // GET /api/students/:id/recommendations
+// ==============================
 exports.getRecommendationsForStudent = async (req, res) => {
   try {
-    const student = await Student.findByPk(req.params.id);
+    const idNum = Number(req.params.id);
+    if (!Number.isInteger(idNum)) {
+      return res.status(400).json({ error: 'Invalid student id' });
+    }
+
+    const student = await Student.findByPk(idNum);
     if (!student) return res.status(404).json({ error: 'Student not found' });
 
-    // Teacher access check
+    // Student can only see their own recs
+    if (req.user.role === 'student') {
+      const me = await Student.findOne({ where: { userId: req.user.id } });
+      if (!me) return res.status(404).json({ error: 'Student profile not found' });
+      if (me.id !== student.id) {
+        return res.status(403).json({ error: 'Forbidden: you can only view your own recommendations' });
+      }
+    }
+
+    // Teacher can only see their students
     if (req.user.role === 'teacher') {
       const myTeacher = await Teacher.findOne({ where: { userId: req.user.id } });
       if (!myTeacher) return res.status(404).json({ error: 'Teacher profile not found' });
@@ -153,6 +175,15 @@ exports.getRecommendationsForStudent = async (req, res) => {
     }
 
     const matches = await matchingEngine.getRecommendedActivities(student);
+
+    // Only return minimal info for students
+    if (req.user.role === 'student') {
+      return res.json(matches.map(m => ({
+        activityId: m.activityId,
+        score: m.score
+      })));
+    }
+
     res.json(matches);
   } catch (err) {
     console.error('[students.recommendations]', err);
@@ -160,13 +191,14 @@ exports.getRecommendationsForStudent = async (req, res) => {
   }
 };
 
+// ==============================
 // POST /api/students/:id/recommendations
+// ==============================
 exports.generateAndSaveTopRecommendation = async (req, res) => {
   try {
     const student = await Student.findByPk(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found' });
 
-    // Teacher access check
     if (req.user.role === 'teacher') {
       const myTeacher = await Teacher.findOne({ where: { userId: req.user.id } });
       if (!myTeacher) return res.status(404).json({ error: 'Teacher profile not found' });
@@ -179,7 +211,6 @@ exports.generateAndSaveTopRecommendation = async (req, res) => {
     if (!matches.length) return res.status(200).json({ message: 'No matching activities found.' });
 
     const topMatch = matches[0];
-
     const existing = await Recommendation.findOne({
       where: { studentId: student.id, activityId: topMatch.activityId }
     });
@@ -201,5 +232,135 @@ exports.generateAndSaveTopRecommendation = async (req, res) => {
   } catch (err) {
     console.error('[students.createRecommendation]', err);
     res.status(500).json({ error: 'Failed to create recommendation', details: err.message });
+  }
+};
+
+// ==============================
+// GET /api/students/me/recommendations
+// ==============================
+exports.getMySavedRecommendationsMinimal = async (req, res) => {
+  try {
+    if (req.user?.role !== 'student') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const me = await Student.findOne({ where: { userId: req.user.id } });
+    if (!me) return res.status(404).json({ error: 'Student profile not found' });
+
+    const recs = await Recommendation.findAll({
+      where: { studentId: me.id },
+      include: [{ model: Activity, attributes: ['id', 'title'] }],
+      order: [['score', 'DESC'], ['id', 'DESC']]
+    });
+
+    const data = recs.map(r => ({
+      activityId: r.activityId,
+      title: r.Activity?.title || undefined,
+      score: r.score
+    }));
+
+    res.json({ data });
+  } catch (err) {
+    console.error('[students.meSavedRecsMinimal]', err);
+    res.status(500).json({ error: 'Failed to fetch recommendations', details: err.message });
+  }
+};
+
+exports.getMe = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const me = await Student.findOne({
+      where: { userId: req.user.id },
+      include: [
+        { model: require('../models/user'), as: 'user', attributes: ['id','username','email'] },
+        { model: Teacher, as: 'teacher', attributes: ['id','userId'] },
+      ],
+      attributes: ['id','userId','teacherId','disability','learningStyle']
+    });
+
+    if (!me) return res.status(404).json({ error: 'Student profile not found' });
+    return res.json({ data: me }); // { data: { id: <Student.id>, ... } }
+  } catch (err) {
+    console.error('[students.getMe]', err);
+    return res.status(500).json({ error: 'Failed to fetch profile', details: err.message });
+  }
+};
+
+/**
+ * GET /api/students/:id/recommendations
+ * Returns recommendations for a student.
+ * Permissions:
+ *  - student: only their own Student.id
+ *  - teacher: only their students
+ *  - admin: any
+ * Response:
+ *  - student: minimal array [{ activityId, score }]
+ *  - teacher/admin: full matchingEngine output
+ */
+exports.getRecommendationsForStudent = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid student id' });
+    }
+
+    const student = await Student.findByPk(id);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    if (req.user.role === 'student') {
+      const me = await Student.findOne({ where: { userId: req.user.id }, attributes: ['id'] });
+      if (!me) return res.status(404).json({ error: 'Student profile not found' });
+      if (me.id !== id) {
+        return res.status(403).json({ error: 'Forbidden: you can only access your own recommendations' });
+      }
+    } else if (req.user.role === 'teacher') {
+      const myTeacher = await Teacher.findOne({ where: { userId: req.user.id }, attributes: ['id'] });
+      if (!myTeacher) return res.status(404).json({ error: 'Teacher profile not found' });
+      if (student.teacherId !== myTeacher.id) {
+        return res.status(403).json({ error: 'Forbidden: not your student' });
+      }
+    }
+    // admin passes
+
+    const matches = await matchingEngine.getRecommendedActivities(student);
+
+    if (req.user.role === 'student') {
+      // minimal payload for students
+      return res.json(matches.map(m => ({
+        activityId: m.activityId,
+        score: m.score
+      })));
+    }
+
+    // teacher/admin see full payload
+    return res.json(matches);
+  } catch (err) {
+    console.error('[students.recommendations]', err);
+    return res.status(500).json({ error: 'Failed to generate recommendations', details: err.message });
+  }
+};
+
+/* Optional: already provided earlier, used by /api/students/me/recommendations */
+exports.getMySavedRecommendationsMinimal = async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ error: 'Forbidden' });
+    const me = await Student.findOne({ where: { userId: req.user.id }, attributes: ['id'] });
+    if (!me) return res.status(404).json({ error: 'Student profile not found' });
+
+    const recs = await Recommendation.findAll({
+      where: { studentId: me.id },
+      include: [{ model: Activity, attributes: ['id','title'] }],
+      order: [['score','DESC'], ['id','DESC']]
+    });
+
+    return res.json({
+      data: recs.map(r => ({ activityId: r.activityId, title: r.Activity?.title, score: r.score }))
+    });
+  } catch (err) {
+    console.error('[students.meSavedRecsMinimal]', err);
+    return res.status(500).json({ error: 'Failed to fetch recommendations', details: err.message });
   }
 };
